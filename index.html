@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tactical Morse P2P Mesh</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    body { background-color: #07090e; color: #94a3b8; font-family: ui-monospace, monospace; }
+    .tactical-glow { box-shadow: 0 0 15px rgba(245, 158, 11, 0.15); }
+    .scope-glow { box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.1); }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-between min-h-screen p-3 select-none">
+
+  <!-- Audio Unlock Overlay -->
+  <div id="audioOverlay" onclick="enableAudio()" class="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-6 text-center cursor-pointer">
+    <div class="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500 flex items-center justify-center mb-4 animate-pulse">
+      <span class="text-2xl">📡</span>
+    </div>
+    <div class="text-2xl font-black text-amber-400 tracking-wider mb-2">INITIALIZE TACTICAL RADIO</div>
+    <p class="text-gray-400 text-xs max-w-xs">Tap anywhere to unlock WebAudio synthesis and engage mesh network.</p>
+  </div>
+
+  <!-- Tactical Header HUD -->
+  <header class="w-full max-w-md bg-slate-950/80 border border-slate-800 rounded-xl p-3 shadow-xl backdrop-blur-md mb-2">
+    <div class="flex justify-between items-center mb-2 border-b border-slate-800/80 pb-2">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-red-500 animate-ping" id="statusDot"></span>
+        <span class="text-[10px] tracking-widest text-slate-400 font-bold uppercase">TAC-LINK STATUS</span>
+      </div>
+      <span id="statusBadge" class="px-2 py-0.5 text-[10px] font-bold rounded bg-red-950/80 text-red-400 border border-red-800">OFFLINE</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-amber-500 text-xs font-bold">FREQ:</span>
+      <input type="text" id="freqInput" value="144.150" class="bg-slate-900 border border-amber-500/40 text-amber-400 text-lg font-bold text-center rounded px-2 py-1 w-28 focus:outline-none focus:border-amber-400">
+      <span class="text-amber-500 text-xs">MHz</span>
+      <button onclick="connectToPeer()" class="ml-auto bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs px-3 py-2 rounded uppercase tracking-wider transition-all">Link</button>
+    </div>
+  </header>
+
+  <!-- Main Operation Area -->
+  <main class="w-full max-w-md flex-1 flex flex-col gap-2.5 my-1 overflow-hidden">
+    
+    <!-- Oscilloscope Scope HUD -->
+    <div class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 relative shrink-0 scope-glow">
+      <div class="absolute top-1.5 left-3 text-[9px] text-emerald-400 font-bold tracking-widest flex items-center gap-1">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> RF OSCILLOSCOPE
+      </div>
+      <canvas id="scopeCanvas" class="w-full h-14 block rounded"></canvas>
+    </div>
+
+    <!-- Chat Messages History Feed -->
+    <div id="chatFeed" class="w-full flex-1 bg-slate-950/90 border border-slate-800 rounded-xl p-3 overflow-y-auto flex flex-col gap-2 min-h-[140px] shadow-inner">
+      <div class="text-center text-slate-600 text-[10px] my-auto uppercase tracking-wider">Secure channel empty. Link frequency to begin.</div>
+    </div>
+
+    <!-- Active Draft Box -->
+    <div class="w-full bg-slate-950 border border-amber-500/30 rounded-xl p-2.5 flex flex-col justify-between shrink-0 tactical-glow">
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-[10px] text-amber-400 font-bold uppercase tracking-wider">BUFFER DRAFT</span>
+        <div class="flex gap-1.5">
+          <button onclick="clearDraft()" class="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-800">Clear</button>
+          <button onclick="sendChatMessage()" class="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black px-3 py-0.5 rounded shadow">Transmit ➔</button>
+        </div>
+      </div>
+      <div id="draftText" class="text-emerald-400 font-mono text-base break-all min-h-[26px]">_</div>
+      <div id="rawSignal" class="text-slate-600 font-mono text-[10px] text-right min-h-[12px]"></div>
+    </div>
+
+    <!-- Morse Code Alphabet Cheat Sheet -->
+    <details class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 cursor-pointer shrink-0">
+      <summary class="text-xs font-bold text-amber-500 uppercase tracking-wider select-none flex justify-between items-center">
+        <span>📖 Morse Cipher Codex</span>
+        <span class="text-[9px] text-slate-500">[Tap to expand]</span>
+      </summary>
+      <div class="grid grid-cols-4 gap-1.5 mt-2 text-xs font-mono text-slate-300 max-h-32 overflow-y-auto pr-1">
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>A</b> <span class="text-amber-400">.-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>B</b> <span class="text-amber-400">-...</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>C</b> <span class="text-amber-400">-.-.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>D</b> <span class="text-amber-400">-..</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>E</b> <span class="text-amber-400">.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>F</b> <span class="text-amber-400">..-.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>G</b> <span class="text-amber-400">--.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>H</b> <span class="text-amber-400">....</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>I</b> <span class="text-amber-400">..</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>J</b> <span class="text-amber-400">.---</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>K</b> <span class="text-amber-400">-.-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>L</b> <span class="text-amber-400">.-..</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>M</b> <span class="text-amber-400">--</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>N</b> <span class="text-amber-400">-.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>O</b> <span class="text-amber-400">---</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>P</b> <span class="text-amber-400">.--.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>Q</b> <span class="text-amber-400">--.-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>R</b> <span class="text-amber-400">.-.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>S</b> <span class="text-amber-400">...</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>T</b> <span class="text-amber-400">-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>U</b> <span class="text-amber-400">..-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>V</b> <span class="text-amber-400">...-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>W</b> <span class="text-amber-400">.--</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>X</b> <span class="text-amber-400">-..-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>Y</b> <span class="text-amber-400">-.--</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>Z</b> <span class="text-amber-400">--..</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>1</b> <span class="text-emerald-400">.----</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>2</b> <span class="text-emerald-400">..---</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>3</b> <span class="text-emerald-400">...--</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>4</b> <span class="text-emerald-400">....-</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>5</b> <span class="text-emerald-400">.....</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>6</b> <span class="text-emerald-400">-....</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>7</b> <span class="text-emerald-400">--...</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>8</b> <span class="text-emerald-400">---..</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>9</b> <span class="text-emerald-400">----.</span></div>
+        <div class="bg-slate-900/90 p-1 rounded border border-slate-800 flex justify-between"><b>0</b> <span class="text-emerald-400">-----</span></div>
+      </div>
+    </details>
+
+    <!-- Large Tactical Key Button -->
+    <button id="morseBtn" class="w-full h-24 bg-gradient-to-b from-amber-600 via-amber-700 to-amber-900 active:from-amber-400 active:to-amber-600 border-2 border-amber-400/80 rounded-2xl shadow-xl flex flex-col items-center justify-center touch-none cursor-pointer shrink-0 transition-transform active:scale-[0.98]">
+      <span class="text-xl font-black text-slate-950 tracking-widest uppercase">TELEGRAPH KEY</span>
+      <span class="text-[10px] text-amber-950 font-extrabold mt-0.5">[ HOLD OR TAP / SPACEBAR ]</span>
+    </button>
+  </main>
+
+  <footer class="w-full max-w-md text-center text-slate-600 text-[9px] tracking-wider uppercase">
+    Mesh P2P • 700Hz WebAudio Protocol
+  </footer>
+
+  <script>
+    let audioCtx = null;
+    let activeOsc = null;
+    let peer = null;
+    let myShortId = "";
+    let peerConnections = {};
+
+    let keyStartTime = 0;
+    let rawDraftMorse = "";
+    let lastKeyReleaseTimer = null;
+
+    const MORSE_CODE_MAP = {
+      '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+      '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+      '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+      '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+      '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+      '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3',
+      '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8',
+      '----.': '9'
+    };
+
+    function enableAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      document.getElementById('audioOverlay').classList.add('hidden');
+      connectToPeer();
+    }
+
+    function playTone(freq = 700) {
+      if (!audioCtx) return;
+      if (activeOsc) return;
+      activeOsc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      activeOsc.type = 'sine';
+      activeOsc.frequency.value = freq;
+      gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      activeOsc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      activeOsc.start();
+      drawSignalPulse(true);
+    }
+
+    function stopTone() {
+      if (activeOsc) {
+        activeOsc.stop();
+        activeOsc.disconnect();
+        activeOsc = null;
+      }
+      drawSignalPulse(false);
+    }
+
+    function updateStatusBadge() {
+      const statusBadge = document.getElementById('statusBadge');
+      const statusDot = document.getElementById('statusDot');
+      const count = Object.keys(peerConnections).length;
+      if (count > 0) {
+        statusBadge.innerText = `ONLINE (${count + 1} PEERS)`;
+        statusBadge.className = 'px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-400 border border-emerald-800';
+        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+      } else {
+        statusBadge.innerText = 'LISTENING (STANDBY)';
+        statusBadge.className = 'px-2 py-0.5 text-[10px] font-bold rounded bg-amber-950 text-amber-400 border border-amber-800';
+        statusDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+      }
+    }
+
+    function connectToPeer() {
+      const statusBadge = document.getElementById('statusBadge');
+      statusBadge.innerText = 'LINKING...';
+      statusBadge.className = 'px-2 py-0.5 text-[10px] font-bold rounded bg-amber-950 text-amber-400 border border-amber-800';
+
+      const rawFreq = document.getElementById('freqInput').value;
+      const roomID = 'morse-room-' + rawFreq.replace(/[^0-9]/g, '');
+
+      if (peer) {
+        peer.destroy();
+        peerConnections = {};
+      }
+
+      peer = new Peer({
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      });
+
+      peer.on('open', (id) => {
+        myShortId = id.substring(0, 4).toUpperCase();
+
+        peer.on('connection', (conn) => {
+          setupConnection(conn);
+        });
+
+        const hostConn = peer.connect(roomID);
+        setupConnection(hostConn);
+
+        const roomHostPeer = new Peer(roomID, {
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        });
+
+        roomHostPeer.on('connection', (conn) => {
+          setupConnection(conn);
+        });
+
+        roomHostPeer.on('error', () => {});
+      });
+
+      peer.on('error', (err) => {
+        console.warn('PeerJS Error:', err);
+      });
+    }
+
+    function setupConnection(conn) {
+      if (!conn) return;
+
+      conn.on('open', () => {
+        const peerId = conn.peer;
+        if (peerConnections[peerId]) return;
+
+        peerConnections[peerId] = conn;
+        updateStatusBadge();
+
+        Object.keys(peerConnections).forEach(otherId => {
+          if (otherId !== peerId && peerConnections[otherId].open) {
+            peerConnections[otherId].send({ type: 'PEER_DISCOVERY', peerId: peerId });
+          }
+        });
+      });
+
+      conn.on('data', (data) => {
+        if (data.type === 'TONE_ON') {
+          playTone(700);
+        } else if (data.type === 'TONE_OFF') {
+          stopTone();
+        } else if (data.type === 'CHAT_MESSAGE') {
+          appendMessage(data.text, data.sender || 'Peer');
+        } else if (data.type === 'PEER_DISCOVERY') {
+          if (data.peerId && !peerConnections[data.peerId] && data.peerId !== peer.id) {
+            const newConn = peer.connect(data.peerId);
+            setupConnection(newConn);
+          }
+        }
+      });
+
+      conn.on('close', () => {
+        delete peerConnections[conn.peer];
+        updateStatusBadge();
+      });
+
+      conn.on('error', () => {
+        delete peerConnections[conn.peer];
+        updateStatusBadge();
+      });
+    }
+
+    function broadcastSignal(type, payload = {}) {
+      Object.values(peerConnections).forEach(conn => {
+        if (conn.open) {
+          conn.send({ type, ...payload });
+        }
+      });
+    }
+
+    // Telegraph Key Events
+    const morseBtn = document.getElementById('morseBtn');
+
+    function handleKeyDown(e) {
+      if (e && e.repeat) return;
+      playTone(700);
+      broadcastSignal('TONE_ON');
+      keyStartTime = Date.now();
+      clearTimeout(lastKeyReleaseTimer);
+    }
+
+    function handleKeyUp() {
+      stopTone();
+      broadcastSignal('TONE_OFF');
+      
+      if (keyStartTime > 0) {
+        const duration = Date.now() - keyStartTime;
+        processDraftMorse(duration);
+        keyStartTime = 0;
+      }
+    }
+
+    morseBtn.addEventListener('mousedown', handleKeyDown);
+    morseBtn.addEventListener('mouseup', handleKeyUp);
+    morseBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleKeyDown(e); });
+    morseBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleKeyUp(); });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleKeyDown(e);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleKeyUp();
+      }
+    });
+
+    // Build draft letters
+    function processDraftMorse(dur) {
+      if (dur < 40) return;
+      if (dur < 220) {
+        rawDraftMorse += '.';
+      } else {
+        rawDraftMorse += '-';
+      }
+
+      document.getElementById('rawSignal').innerText = rawDraftMorse;
+
+      clearTimeout(lastKeyReleaseTimer);
+      lastKeyReleaseTimer = setTimeout(() => {
+        decodeDraftSymbol();
+      }, 600);
+    }
+
+    function decodeDraftSymbol() {
+      if (!rawDraftMorse) return;
+      const char = MORSE_CODE_MAP[rawDraftMorse] || '?';
+      const draft = document.getElementById('draftText');
+      if (draft.innerText === '_') draft.innerText = '';
+      draft.innerText += char + ' ';
+      rawDraftMorse = '';
+      document.getElementById('rawSignal').innerText = '';
+    }
+
+    function clearDraft() {
+      document.getElementById('draftText').innerText = '_';
+      rawDraftMorse = '';
+      document.getElementById('rawSignal').innerText = '';
+    }
+
+    function sendChatMessage() {
+      const draft = document.getElementById('draftText').innerText;
+      if (draft === '_' || !draft.trim()) return;
+
+      const cleanText = draft.trim();
+      appendMessage(cleanText, 'You');
+      broadcastSignal('CHAT_MESSAGE', { text: cleanText, sender: `Agent-${myShortId}` });
+      clearDraft();
+    }
+
+    function appendMessage(text, senderLabel) {
+      const feed = document.getElementById('chatFeed');
+      if (feed.querySelector('.text-center')) {
+        feed.innerHTML = '';
+      }
+
+      const bubble = document.createElement('div');
+      if (senderLabel === 'You') {
+        bubble.className = 'bg-amber-950/40 border border-amber-600/30 rounded-xl p-2.5 self-end max-w-[85%] text-right';
+        bubble.innerHTML = `<div class="text-[9px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">YOU</div><div class="text-amber-200 font-mono text-sm break-all">${text}</div>`;
+      } else {
+        bubble.className = 'bg-slate-900 border border-slate-800 rounded-xl p-2.5 self-start max-w-[85%] text-left';
+        bubble.innerHTML = `<div class="text-[9px] text-emerald-400 font-bold uppercase tracking-wider mb-0.5">${senderLabel}</div><div class="text-emerald-300 font-mono text-sm break-all">${text}</div>`;
+      }
+
+      feed.appendChild(bubble);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    // Scope Visualization
+    const canvas = document.getElementById('scopeCanvas');
+    const ctx = canvas.getContext('2d');
+    let isActivelyBeeping = false;
+    let phase = 0;
+
+    function resizeCanvas() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function drawSignalPulse(active) {
+      isActivelyBeeping = active;
+    }
+
+    function animateScope() {
+      ctx.fillStyle = 'rgba(7, 9, 14, 0.25)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = isActivelyBeeping ? '#10b981' : '#1e293b';
+
+      const cy = canvas.height / 2;
+      const amp = isActivelyBeeping ? 20 : 2;
+
+      for (let x = 0; x < canvas.width; x++) {
+        const y = cy + Math.sin((x * 0.05) + phase) * amp;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+
+      ctx.stroke();
+      phase += isActivelyBeeping ? 0.3 : 0.05;
+      requestAnimationFrame(animateScope);
+    }
+    animateScope();
+  </script>
+</body>
+</html>
